@@ -1,4 +1,6 @@
-module Agent
+module Agent (Agent,
+              Agent.create, Agent.read, Agent.send, Agent.await, Agent.awaitFor,
+              Agent.isReady, Agent.restart)
        where
 
 import Control.Applicative (Applicative (..), (<$>))
