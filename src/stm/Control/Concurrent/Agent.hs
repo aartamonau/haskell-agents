@@ -108,7 +108,3 @@ restart agent@(Agent state pool worker) value = do
   tid <- forkIO (executor agent)
 
   atomically $ putTMVar worker (Just tid)
-
-fib 0 = 1
-fib 1 = 1
-fib n = fib (n - 1) + fib (n - 2)
