@@ -47,9 +47,7 @@ executor a@(Agent state pool _) = do
     isEmpty <- fmap Seq.null (readTVar pool)
     when isEmpty retry
 
-    task :< tasks <- fmap Seq.viewl (readTVar pool)
-    writeTVar pool tasks
-
+    task :< _ <- fmap Seq.viewl (readTVar pool)
     return task
 
   curState <- atomically $ readTVar state
@@ -61,6 +59,14 @@ executor a@(Agent state pool _) = do
   -- terminated beforehand so the agent won't be in the wrong state.
   let newState = task curState
   rnf newState `pseq` atomically $ writeTVar state newState
+
+  atomically $ do
+    -- Only executor and restart can decrease a length of the pool.
+    -- As stated above the second case is explicitly handled by restart itself.
+    --
+    -- Hence the following pattern matching is correct.
+    _ :< tasks <- fmap Seq.viewl (readTVar pool)
+    writeTVar pool tasks
 
   executor a
 
@@ -102,3 +108,7 @@ restart agent@(Agent state pool worker) value = do
   tid <- forkIO (executor agent)
 
   atomically $ putTMVar worker (Just tid)
+
+fib 0 = 1
+fib 1 = 1
+fib n = fib (n - 1) + fib (n - 2)
