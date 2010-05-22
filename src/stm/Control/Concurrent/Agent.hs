@@ -3,16 +3,14 @@ module Agent (Agent,
               Agent.isReady, Agent.restart)
        where
 
-import Control.Applicative (Applicative (..), (<$>))
-
 import Control.Concurrent (ThreadId, forkIO, killThread)
 import Control.Concurrent.STM (STM, atomically, retry,
                                TVar, newTVar, readTVar, writeTVar,
                                TMVar, newTMVar, takeTMVar, putTMVar)
-import Control.Monad (ap, unless, when)
+import Control.Monad (unless, when)
 
 import Control.Parallel (pseq)
-import Control.Parallel.Strategies (NFData (..), using)
+import Control.Parallel.Strategies (NFData (..))
 
 import Data.Maybe (isJust, fromJust)
 import Data.Sequence (Seq, ViewL (..), (|>))
@@ -21,25 +19,23 @@ import qualified Data.Sequence as Seq
 import System.Timeout (timeout)
 
 
-instance Applicative STM where
-  pure  = return
-  (<*>) = ap
-
 type AgentTask s = s -> s
 
 data Agent s =
-  Agent { state     :: TVar s
-        , pool      :: TVar (Seq (AgentTask s))
-        , worker    :: TVar (Maybe ThreadId)
-        , exclusion :: TMVar () }
+  Agent { state  :: TVar s
+        , pool   :: TVar (Seq (AgentTask s))
+        , worker :: TVar (Maybe ThreadId)
+        , lock   :: TMVar () }
 
 create :: NFData s => s -> IO (Agent s)
 create v = do
-  agent <- atomically $
-             Agent <$> newTVar v
-                   <*> newTVar Seq.empty
-                   <*> newTVar Nothing
-                   <*> newTMVar ()
+  agent <- atomically $ do
+    state  <- newTVar v
+    pool   <- newTVar Seq.empty
+    worker <- newTVar Nothing
+    lock   <- newTMVar ()
+
+    return $ Agent state pool worker lock
 
   tid <- forkIO (executor agent)
   atomically $ writeTVar (worker agent) (Just tid)
@@ -49,13 +45,13 @@ create v = do
 executor :: NFData s => Agent s -> IO ()
 executor a@(Agent state pool _ _) = do
   task <- atomically $ do
-    isEmpty <- Seq.null <$> readTVar pool
+    isEmpty <- fmap Seq.null (readTVar pool)
     when isEmpty retry
 
-    task :< tasks <- Seq.viewl <$> readTVar pool
+    task :< tasks <- fmap Seq.viewl (readTVar pool)
     writeTVar pool tasks
 
-    state' <- task <$> readTVar state
+    state' <- fmap task (readTVar state)
     rnf state' `pseq` writeTVar state state'
 
   executor a
@@ -72,7 +68,7 @@ send (Agent _ pool _ _) task =
 await :: Agent s -> IO s
 await (Agent state pool _ _) =
   atomically $ do
-    isEmpty <- Seq.null <$> readTVar pool
+    isEmpty <- fmap Seq.null (readTVar pool)
     unless (isEmpty) retry
 
     readTVar state
