@@ -13,7 +13,6 @@ import Control.Monad (unless, when)
 import Control.Parallel (pseq)
 import Control.Parallel.Strategies (NFData (..))
 
-import Data.Maybe (isJust, fromJust)
 import Data.Sequence (Seq, ViewL (..), (|>))
 import qualified Data.Sequence as Seq
 
@@ -25,7 +24,7 @@ type AgentTask s = s -> s
 data Agent s =
   Agent { state  :: TVar s
         , pool   :: TVar (Seq (AgentTask s))
-        , worker :: TMVar (Maybe ThreadId) }
+        , worker :: TMVar ThreadId }
 
 create :: NFData s => s -> IO (Agent s)
 create v = do
@@ -37,7 +36,7 @@ create v = do
     return $ Agent state pool worker
 
   tid <- forkIO (executor agent)
-  atomically $ putTMVar (worker agent) (Just tid)
+  atomically $ putTMVar (worker agent) tid
 
   return agent
 
@@ -98,7 +97,7 @@ restart agent@(Agent state pool worker) value = do
   -- avoiding cocurrent executions of restart
   tid <- atomically $ takeTMVar worker
 
-  when (isJust tid) $ killThread (fromJust tid)
+  killThread tid
 
   -- concurrent calls to other functions are OK
   atomically $ do
@@ -107,4 +106,4 @@ restart agent@(Agent state pool worker) value = do
 
   tid <- forkIO (executor agent)
 
-  atomically $ putTMVar worker (Just tid)
+  atomically $ putTMVar worker tid
